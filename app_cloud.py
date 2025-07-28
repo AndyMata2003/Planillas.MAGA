@@ -6,6 +6,18 @@ from io import BytesIO
 from openpyxl import load_workbook
 from openpyxl.drawing.image import Image as XLImage
 import os
+from weasyprint import HTML
+import tempfile
+
+# --- Función para generar PDF desde Excel en memoria ---
+def generar_pdf_desde_excel(wb):
+    ws = wb.active
+    data = [[cell.value for cell in row] for row in ws.iter_rows()]
+    df = pd.DataFrame(data)
+    html = df.to_html(index=False)
+    with tempfile.NamedTemporaryFile(delete=False, suffix=".pdf") as tmpfile:
+        HTML(string=html).write_pdf(tmpfile.name)
+        return tmpfile.name
 
 # --- Utilidades para Streamlit Cloud ---
 def load_font_base64(font_path):
@@ -31,16 +43,6 @@ def insertar_logo(ws, imagen_path, col='A', fila=1):
     except Exception:
         pass  # Continúa aunque no haya imagen
 
-def descargar_excel(wb, nombre_archivo):
-    buffer = BytesIO()
-    wb.save(buffer)
-    st.download_button(
-        label=f"💾 Descargar {nombre_archivo}",
-        data=buffer.getvalue(),
-        file_name=nombre_archivo,
-        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-    )
-
 # --- Interfaz principal ---
 st.set_page_config(page_title="Planillas MAGA Cloud", layout="wide")
 st.title("🚀 Sistema de Planillas - Versión Cloud")
@@ -64,7 +66,6 @@ df_beneficiarios = pd.DataFrame()
 # Procesar archivo de comunidades
 if uploaded_file_1:
     df_comunidades = pd.read_excel(uploaded_file_1)
-    # Limpieza básica de columnas y datos
     df_comunidades.columns = df_comunidades.columns.str.strip().str.replace('\xa0', '', regex=False)
     if 'Comunidad/ Establecimiento' in df_comunidades.columns:
         df_comunidades['Comunidad/ Establecimiento'] = df_comunidades['Comunidad/ Establecimiento'].astype(str).str.strip()
@@ -73,7 +74,6 @@ if uploaded_file_1:
         st.stop()
 
     st.success("Archivo de comunidades cargado")
-
     gb = GridOptionsBuilder.from_dataframe(df_comunidades)
     gb.configure_default_column(editable=True, filter=True, sortable=True)
     gridOptions = gb.build()
@@ -92,25 +92,18 @@ if uploaded_file_2:
     df_beneficiarios = pd.read_excel(uploaded_file_2)
     df_beneficiarios.columns = df_beneficiarios.columns.str.strip()
     ref_col = next((col for col in df_beneficiarios.columns if col.strip().lower() == 'referencia'), None)
-
     if ref_col is None:
         st.error("No se encontró la columna 'Referencia' en el archivo de beneficiarios.")
         st.stop()
-
     df_beneficiarios[ref_col] = df_beneficiarios[ref_col].astype(str).str.strip().str.lower()
 
-# Una vez ambos archivos estén cargados y procesados
 if not df_comunidades.empty and not df_beneficiarios.empty:
-
     comunidad_opciones = df_comunidades['Comunidad/ Establecimiento'].dropna().unique()
     comunidad_seleccionada = st.selectbox("Selecciona comunidad", options=comunidad_opciones)
     comunidad_seleccionada_lower = comunidad_seleccionada.strip().lower()
-
     df_filtrado = df_beneficiarios[df_beneficiarios[ref_col] == comunidad_seleccionada_lower]
-
     st.dataframe(df_filtrado)
 
-    # Obtener índice de comunidad para código
     idx_comunidad = df_comunidades.index[
         df_comunidades['Comunidad/ Establecimiento'].str.strip().str.lower() == comunidad_seleccionada_lower
     ][0] + 1
@@ -147,9 +140,7 @@ if not df_comunidades.empty and not df_beneficiarios.empty:
             for hoja_idx, bloque in enumerate(bloques):
                 ws = wb.copy_worksheet(plantilla_hoja) if hoja_idx > 0 else plantilla_hoja
                 ws.title = f"PLANILLA{hoja_idx+1}"
-
                 insertar_logo(ws, "logo_maga.png")
-
                 ws['C4'] = unidad_ejecutora
                 ws['C7'] = df_comunidades.loc[idx_comunidad - 1, 'Departamento']
                 ws['C9'] = df_comunidades.loc[idx_comunidad - 1, 'Municipio']
@@ -163,14 +154,17 @@ if not df_comunidades.empty and not df_beneficiarios.empty:
 
                 hojas_creadas.append(ws.title)
 
-            # Borrar hojas no usadas
             for hoja in wb.sheetnames:
                 if hoja not in hojas_creadas:
                     del wb[hoja]
 
-            nombre_archivo = f"Planilla_{codigo_completo}.xlsx"
-            descargar_excel(wb, nombre_archivo)
-
+            pdf_path = generar_pdf_desde_excel(wb)
+            with open(pdf_path, "rb") as f:
+                st.download_button(
+                    label="📄 Descargar Planilla en PDF",
+                    data=f,
+                    file_name=f"Planilla_{codigo_completo}.pdf",
+                    mime="application/pdf"
+                )
     else:
         st.warning("El archivo de beneficiarios no contiene todas las columnas necesarias para generar la planilla.")
-

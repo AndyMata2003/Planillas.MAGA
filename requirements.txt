@@ -1,5 +1,6 @@
 streamlit
-streamlit-aggrid
 pandas
 openpyxl
 python-docx
+streamlit-aggrid
+weasyprint
