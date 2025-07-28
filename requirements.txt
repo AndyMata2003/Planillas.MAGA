@@ -3,4 +3,3 @@ streamlit-aggrid
 pandas
 openpyxl
 python-docx
-pywin32
